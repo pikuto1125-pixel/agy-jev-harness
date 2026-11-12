@@ -1,0 +1,18 @@
+{
+  "name": "agy-jev-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Antigravity plugin + full multi-desk self-evolving agent harness kit on gemini-decision-1. Node >= 20, zero npm dependencies.",
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/plugin.test.mjs",
+    "scan": "node scripts/security_scan.mjs --history",
+    "doctor": "node scripts/jev_client.mjs doctor --offline",
+    "init": "node scripts/init_workspace.mjs",
+    "bloat": "node scripts/bloat_guard.mjs --brief"
+  }
+}

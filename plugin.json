@@ -1,0 +1,18 @@
+{
+  "name": "jev-harness",
+  "displayName": "Jev Harness: self-evolving multi-desk agent harness",
+  "description": "gemini-decision-1 harness: router, command guard, voice gate, desk bus, verbatim relay, 4-persona evaluator, weekly dock.",
+  "version": "0.1.0",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "pikuto1125-pixel",
+    "url": "https://github.com/pikuto1125-pixel"
+  },
+  "homepage": "https://github.com/pikuto1125-pixel/agy-jev-harness",
+  "repository": "https://github.com/pikuto1125-pixel/agy-jev-harness",
+  "suggestedPrompts": [
+    "Run the jev-harness doctor and tell me which checks pass, warn or fail",
+    "Route this request through the Jev router and show the lane and the model role split: \"audit this repo before I make it public\"",
+    "Is \"えっと、予算は158万じゃなくて185万で…\" a finished turn, a thinking pause, or a backchannel?"
+  ]
+}

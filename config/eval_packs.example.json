@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "note": "Rubric packs for anchored_eval.mjs. Copy to <config dir>/eval_packs.json (or pass --packs <file>) and edit. Every pack should carry a miniature goldAnchor (clearly good) and nearMissAnchor (looks good, is not): they are graded next to the target so a rubric that cannot tell them apart fails closed (assay_invalid).",
+  "packs": {
+    "production_code": {
+      "label": "Production code change / diff",
+      "persona": "neutral_calibrated",
+      "floor": { "minChars": 20, "maxChars": 200000, "forbidPatterns": ["^(<<<<<<<|>>>>>>>)", "TODO:? implement"] },
+      "prohibitions": ["unverifiable_absolute_claims", "unrelated_changes"],
+      "quality": {
+        "correctness": { "instructions": "Is the change logically correct for its stated goal, including empty / null / boundary inputs?", "criteria": ["Likely broken", "Happy path only", "Correct for the stated cases", "Correct, edge cases handled"] },
+        "test_evidence": { "instructions": "Is there test or run evidence proportional to the risk (a failing-first test, a real exit code)?", "criteria": ["None", "Token gesture", "Adequate", "Strong, regression-proof"] },
+        "failure_handling": { "instructions": "Do errors fail closed and loudly instead of being swallowed or turned into a silent success?", "criteria": ["Errors swallowed", "Partly handled", "Handled", "Fail-closed with a clear signal"] },
+        "minimal_blast_radius": { "instructions": "Is the diff no larger than the goal needs?", "criteria": ["Sprawling unrelated edits", "Some extras", "Focused", "Surgical"] }
+      },
+      "goldAnchor": "fix: reject empty input in parseQty()\n\n- if (!s) return 0;\n+ if (typeof s !== 'string' || s.trim() === '') throw new RangeError('parseQty: empty input');\n\ntest: parseQty('') throws RangeError (failing before this change); parseQty(' 3 ') === 3 still passes.\nnode --test: 14 pass, 0 fail, exit 0.",
+      "nearMissAnchor": "fix: handle bad input in parseQty()\n\n- return Number(s);\n+ try { return Number(s.trim()); } catch { return 0; }\n\nAlso renamed three unrelated helpers and reformatted utils.js. Works great, 100% safe now. No tests added."
+    },
+    "public_copy_and_lp": {
+      "label": "Landing page, outreach or proposal copy",
+      "persona": "demanding_buyer_critic",
+      "floor": { "minChars": 60, "maxChars": 20000 },
+      "prohibitions": ["unverifiable_absolute_claims", "empty_hype", "ai_cliche_tone"],
+      "quality": {
+        "specificity": { "instructions": "Does it give the reader concrete reasons, numbers, examples or steps?", "criteria": ["Generic", "Partly specific", "Specific", "Concrete and verifiable"] },
+        "buyer_first": { "instructions": "Is it written around the reader's problem and decision, not the seller's product, process or jargon?", "criteria": ["Seller-centric", "Mixed", "Buyer-centric", "Buyer's own words, zero friction"] },
+        "honest_claims": { "instructions": "Are all claims limited to what is established, with hedges where needed?", "criteria": ["Overclaims", "Some stretch", "Mostly grounded", "Fully grounded"] },
+        "next_step": { "instructions": "Is there exactly one clear, low-friction next step?", "criteria": ["None", "Buried or several", "Clear", "Clear, small and reversible"] }
+      },
+      "goldAnchor": "Your invoices go out on the 25th and half of them bounce on a wrong PO number. We check each PO against your own order list before sending: in a 3-week pilot with a 12-person shop, bounced invoices fell from 41 to 6. If that matches your month-end, reply with one anonymised invoice batch and we will show you the mismatches we find in it, free, within two working days.",
+      "nearMissAnchor": "In today's fast-paced world, our game-changing, AI-powered platform seamlessly unlocks the power of next-generation invoicing. We leverage cutting-edge synergies to deliver best-in-class results, guaranteed 100% success. Schedule a 60-minute discovery workshop to learn about our full solution suite."
+    },
+    "statistical_experiment": {
+      "label": "Experiment / backtest / A-B result write-up",
+      "persona": "neutral_calibrated",
+      "floor": {
+        "minChars": 120,
+        "maxChars": 60000,
+        "requireAll": [
+          { "id": "sample_size", "pattern": "\\b[nN]\\s*=\\s*\\d|sample size|\\d+\\s+(?:samples|trials|users|runs|trades|observations)" },
+          { "id": "uncertainty", "pattern": "confidence interval|\\bCI\\b|\\bci\\b|±|standard (?:error|deviation)|\\bp\\s*[<=]\\s*0?\\.\\d|credible interval|bootstrap" }
+        ]
+      },
+      "prohibitions": ["unverifiable_absolute_claims", "empty_hype"],
+      "quality": {
+        "sample_size_adequacy": { "instructions": "Is the sample large enough for the effect that is claimed, and is that argued, not assumed?", "criteria": ["Far too small", "Doubtful", "Adequate for the claim", "Power or precision argued explicitly"] },
+        "uncertainty_reported": { "instructions": "Are intervals or error bars given for every headline number, and are they read correctly?", "criteria": ["Point estimates only", "Intervals present, misread", "Correctly reported", "Correct and decision-relevant"] },
+        "multiple_comparisons": { "instructions": "Is the number of variants / metrics / peeks tried disclosed and corrected for?", "criteria": ["Cherry-picked", "Not disclosed", "Disclosed", "Disclosed and corrected"] },
+        "conclusion_matches_evidence": { "instructions": "Does the conclusion claim no more than the interval supports (no 'proved' from an interval that includes zero)?", "criteria": ["Contradicted by the data", "Overreaches", "Matches", "Matches, with limits stated"] }
+      },
+      "goldAnchor": "Variant B vs A, n=2,400 sessions per arm (power 0.8 for a 1.5-point lift). Conversion 5.1% vs 6.3%, difference +1.2 pp, 95% CI [0.2, 2.2] pp. We tested 1 primary metric (pre-registered); 3 secondary metrics are reported without correction and marked exploratory. Conclusion: B likely helps, between 0.2 and 2.2 pp; not enough to rule out a very small effect. Re-run before rollout to all regions.",
+      "nearMissAnchor": "Variant B beat A. Conversion 5.1% vs 6.3% (n=240 total, after dropping the worst 20 sessions). Of 14 metrics we looked at, this one was significant (p<0.05), so B is proven to work and should ship everywhere."
+    },
+    "security_and_spec": {
+      "label": "Security review, threat model or specification",
+      "persona": "skeptic_auditor",
+      "floor": { "minChars": 100, "maxChars": 80000 },
+      "prohibitions": ["unverifiable_absolute_claims", "empty_hype"],
+      "quality": {
+        "threats_enumerated": { "instructions": "Are the assets, trust boundaries and attacker capabilities named, rather than a generic checklist?", "criteria": ["Generic checklist", "Some named threats", "Concrete threats per boundary", "Concrete, ranked, with attacker model"] },
+        "adversarial_cases": { "instructions": "Does it work through hostile inputs and abuse paths (injection, replay, confused deputy, race), not just normal use?", "criteria": ["Normal use only", "One or two abuse cases", "Several abuse cases", "Systematic, each with an outcome"] },
+        "assumptions_explicit": { "instructions": "Are assumptions, out-of-scope items and unverified claims listed so a reader knows what was NOT checked?", "criteria": ["Hidden", "Partly listed", "Listed", "Listed with how each could be verified"] },
+        "testable_requirements": { "instructions": "Can every requirement be checked by a test or an observable result (no 'should be secure')?", "criteria": ["Vague", "Mixed", "Mostly testable", "Every requirement has a pass/fail check"] }
+      },
+      "goldAnchor": "Assets: API tokens, user uploads. Boundary: upload endpoint (untrusted) -> converter (sandboxed) -> storage. Attacker: authenticated user who can send arbitrary files. Abuse cases: (1) zip bomb: reject archives whose expanded size exceeds 100 MB before extraction (test: 1 GB bomb returns 413); (2) path traversal in archive entries: normalise and refuse '..' (test included); (3) replayed upload tokens: single-use, 5 min TTL. Out of scope / not verified: the converter's third-party codec. Assumption: the storage bucket is private - verify with an unauthenticated GET (expect 403).",
+      "nearMissAnchor": "The system follows security best practices and is secure by design. Inputs should be validated and access should be properly controlled. Encryption is used where appropriate. No vulnerabilities were found, so the upload feature is safe to release."
+    },
+    "web_app_ui": {
+      "label": "Web app / dashboard UI, judged from the RENDERED screenshot (needs --media <png|jpg|webp>)",
+      "persona": "craft_and_upside",
+      "requiresMedia": "image",
+      "floor": { "minChars": 0, "maxChars": 100000 },
+      "prohibitions": ["empty_hype", "ai_cliche_tone"],
+      "quality": {
+        "focal_hierarchy": { "instructions": "In the screen (rendered image for the candidate, or specimen specification for reference controls): is there one obvious focal point with a clear second and third level, rather than an even grid of same-weight cards competing for attention (card slop)?", "criteria": ["Uniform card grid, no focal point", "A focal point exists but is weak", "Clear primary, secondary and tertiary levels", "One unmistakable focal point and a deliberate reading path"] },
+        "typographic_contrast": { "instructions": "In the screen: do size, weight and colour create real contrast between headline, body and labels, and is the text legible at a glance?", "criteria": ["One size and weight, or illegible", "Some contrast, muddy or timid", "Clear scale and weight contrast", "Confident scale, weight and spacing rhythm; legible everywhere"] },
+        "one_step_clarity": { "instructions": "In the screen: can a first-time user tell the single next action in one second, and is that action the most prominent control?", "criteria": ["Next action unclear", "Several equal actions compete", "Primary action findable", "The one next action is obvious and dominant"] },
+        "not_template": { "instructions": "Does the screen read as a bespoke instrument crafted for its exact domain with a distinctive visual point of view, rather than a default SaaS component-library template with generic cards or gradient hero?", "criteria": ["Default template", "Template with light styling", "Own character in places", "Unmistakably bespoke craft"] }
+      },
+      "goldAnchor": "Bespoke precision financial reconciliation studio on a calm #0B0E11 matte obsidian canvas with warm #F4EFE6 ivory editorial display type (52px/1.05, -0.03em tracking): one dominant focal stage at top-left ('214 open invoices — ¥18,420,000 unmatched') paired with a single high-contrast #E8A838 tactile action key ('Reconcile oldest mismatch [Enter]') and a quiet muted secondary link ('Defer to Friday'). Beneath a hairline rule, a full-bleed borderless ledger (zero rounded card boxes) displays 5 rows in 15px body with right-aligned tabular numerals (font-variant-numeric: tabular-nums, 9.2:1 WCAG AAA contrast) and 6px semantic status pips + plain verbs. Deliberate 8px/24px/64px spatial rhythm; zero decorative gradients, zero competing CTAs.",
+      "nearMissAnchor": "Generic SaaS dashboard with a purple-to-blue gradient banner reading 'Supercharge Your Workflow with AI!' above a 3x2 grid of six identical rounded cards (#121E23) with identical borders and shadows. Every card has an emoji, a 15px bold title, two low-contrast grey lines, and its own competing 'Run Now' button. No dominant focal point, uniform typography, and unclear first step."
+    }
+  }
+}

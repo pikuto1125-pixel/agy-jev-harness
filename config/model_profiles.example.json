@@ -1,0 +1,11 @@
+{
+  "local": { "label": "Local Ollama", "family": "local", "pool": "local", "build": 0.4, "deep": 0.15, "sec": 0.1, "final": 0.05, "cost": 0, "can": ["build"] },
+  "local-gpu": { "label": "Local GPU model", "family": "local", "pool": "local", "build": 0.45, "deep": 0.2, "sec": 0.1, "final": 0.05, "cost": 0, "can": ["build"] },
+  "opencode-free": { "label": "OpenCode free tier", "family": "free", "pool": "free_daily", "build": 0.55, "deep": 0.35, "sec": 0.2, "final": 0.15, "cost": 0.1, "can": ["build"] },
+  "flash": { "label": "Gemini Flash", "family": "gemini", "pool": "agy_gemini", "build": 0.6, "deep": 0.3, "sec": 0.25, "final": 0.3, "cost": 0.3, "can": ["build"] },
+  "argon": { "label": "Gemini Argon", "family": "gemini", "pool": "agy_gemini", "build": 0.8, "deep": 0.8, "sec": 0.7, "final": 0.75, "cost": 2.5, "can": ["build", "audit", "final"] },
+  "carbon": { "label": "Gemini Carbon", "family": "gemini", "pool": "agy_gemini", "build": 0.2, "deep": 0.3, "sec": 0.4, "final": 0.95, "cost": 1.5, "can": ["audit", "final"] },
+  "sonnet": { "label": "Claude Sonnet", "family": "claude", "pool": "claude_sub", "build": 0.9, "deep": 0.5, "sec": 0.45, "final": 0.4, "cost": 1, "can": ["build", "audit"] },
+  "opus": { "label": "Claude Opus", "family": "claude", "pool": "claude_sub", "build": 0.75, "deep": 0.95, "sec": 0.7, "final": 0.6, "cost": 3, "can": ["build", "audit", "final"] },
+  "fable": { "label": "Claude Fable", "family": "claude", "pool": "claude_sub", "build": 0.7, "deep": 0.9, "sec": 0.97, "final": 0.7, "cost": 5, "can": ["audit", "final"] }
+}

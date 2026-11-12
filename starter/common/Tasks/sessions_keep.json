@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "policy": "compaction_first",
+  "note": "Desks never rotate to a new thread: they compact and continue from handover. convId is filled by `session_bus.mjs bind`. privacy: cloud_ok | local_only (local_only desks refuse relay bundles for cloud targets).",
+  "dockDay": "sat",
+  "handover": "Tasks/handover_now.md",
+  "desks": {
+    "coordinator": { "convId": "", "role": "Tasks/session_roles/coordinator.md", "privacy": "cloud_ok" },
+    "venture_lab": { "convId": "", "role": "Tasks/session_roles/venture_lab.md", "privacy": "cloud_ok" },
+    "quant_lab": { "convId": "", "role": "Tasks/session_roles/quant_lab.md", "privacy": "local_only" },
+    "creative_studio": { "convId": "", "role": "Tasks/session_roles/creative_studio.md", "privacy": "cloud_ok" },
+    "harness_dock": { "convId": "", "role": "Tasks/session_roles/harness_dock.md", "privacy": "cloud_ok" }
+  }
+}

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Jev Harness logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5A4"/>
+    </linearGradient>
+  </defs>
+  <!-- badge: 410x410 inside a 512 canvas = ~10% margin on every side -->
+  <rect x="51" y="51" width="410" height="410" rx="96" fill="url(#g)"/>
+  <rect x="51" y="51" width="410" height="410" rx="96" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="6"/>
+  <!-- decision tree: one input fans out to three probability lanes -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 256 H232"/>
+    <path d="M232 256 C262 256 268 160 312 160 H362"/>
+    <path d="M232 256 H362"/>
+    <path d="M232 256 C262 256 268 352 312 352 H362"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="150" cy="256" r="34"/>
+    <circle cx="376" cy="160" r="26"/>
+    <circle cx="376" cy="256" r="26"/>
+    <circle cx="376" cy="352" r="26"/>
+  </g>
+  <circle cx="150" cy="256" r="14" fill="#4F46E5"/>
+</svg>

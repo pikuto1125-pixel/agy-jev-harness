@@ -1,0 +1,4 @@
+# desk bus: peer messages and read cursors are local runtime state
+Tasks/_bus/
+.env
+.env.*
