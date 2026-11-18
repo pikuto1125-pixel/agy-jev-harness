@@ -1,0 +1,3 @@
+c8209b55f807e7de214d148aaf95258990e1aa95357e3386ebaf514c53e83c51  free-02-retro-failure-linter-v1.0.0.zip
+fbfc9fb76279fef50b03954c807c64eb09470315204b36f5141d4079c8f9bdd1  free-03-cognitive-wiki-u-gate-v1.0.0.zip
+35c6a4dff59bf7fe87c4231d2f36cf83886b5a88ed75f8452d754ee9a70b71b6  free-04-shortlink-deliverable-portal-v1.0.0.zip

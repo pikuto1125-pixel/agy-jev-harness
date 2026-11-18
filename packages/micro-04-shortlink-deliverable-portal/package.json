@@ -1,0 +1,13 @@
+{
+  "name": "shortlink-deliverable-portal",
+  "version": "1.0.0",
+  "description": "Builds a pure-ASCII shortlink portal (/m/id/<10hex>.html) and a searchable static index for local HTML, Markdown, PDF and text deliverables.",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "engines": { "node": ">=20" },
+  "bin": { "shortlink-portal": "./bin/shortlink-portal.mjs" },
+  "exports": { ".": "./src/portal.mjs" },
+  "scripts": { "test": "node --test" },
+  "keywords": ["shortlink", "static-site", "portal", "deliverables", "mobile-sharing"]
+}

@@ -1,6 +1,6 @@
 {
   "name": "agy-jev-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Antigravity plugin + full multi-desk self-evolving agent harness kit on gemini-decision-1. Node >= 20, zero npm dependencies.",

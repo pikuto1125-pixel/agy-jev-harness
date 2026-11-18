@@ -1,0 +1,13 @@
+{
+  "name": "cognitive-wiki-and-u-gate",
+  "version": "1.0.0",
+  "description": "Knowledge wiki linter (1 role = 1 file, entrypoint length, broken links, orphans) and an unverified-claim gate that blocks unresolved [U] markers, bare estimates and unsourced statistics.",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "engines": { "node": ">=20" },
+  "bin": { "wiki-ugate": "./bin/wiki-ugate.mjs" },
+  "exports": { ".": "./src/wiki_ugate.mjs" },
+  "scripts": { "test": "node --test" },
+  "keywords": ["wiki", "markdown", "linter", "ci-gate", "knowledge-base"]
+}

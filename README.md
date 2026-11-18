@@ -168,6 +168,34 @@ stay inside the free quota of about **10,000 requests per day** (figures at the 
 A built-in daily call cap (`JEV_DAILY_CALL_CAP`) and a 5-minute cool-down after HTTP 429 protect the quota. The evaluator makes 3 requests per persona
 when the assay runs (target, gold, near-miss), 12 for `--persona all`.
 
+## v0.2.0: modular free tools (`packages/`)
+
+Version 0.2.0 adds three standalone command-line tools under `packages/`. Each one is a separate Node package with its own README, tests and `LICENSE` (MIT). They need Node 20 or newer, have zero npm dependencies, make no network calls, and give the same output for the same input. They do not depend on the rest of this repository, so you can copy a single folder out and use it on its own.
+
+| Package | What it does | CLI |
+| --- | --- | --- |
+| `packages/micro-02-retro-failure-linter` | Lints an AI agent session log (JSONL or Markdown) for repeated failures, unverified "done" claims, bypassed guardrails, scope creep and tool misuse. Exits 1 when the same failure shows up a third time. | `retro-lint` |
+| `packages/micro-03-cognitive-wiki-and-u-gate` | Lints a Markdown wiki (one role per file, entrypoint length, broken links, orphans) and blocks unresolved `[U]` markers and unsourced statistics. | `wiki-ugate` |
+| `packages/micro-04-shortlink-deliverable-portal` | Builds a static, ASCII-only shortlink portal (`/m/id/<id>.html`, a searchable `index.html` and `manifest.json`) from a folder of deliverables, and verifies it. | `shortlink-portal` |
+
+```bash
+# retro-failure-linter
+node packages/micro-02-retro-failure-linter/bin/retro-lint.mjs session.jsonl [--format json|md] [--threshold 2] [--out report.md]
+
+# cognitive-wiki-and-u-gate
+node packages/micro-03-cognitive-wiki-and-u-gate/bin/wiki-ugate.mjs lint docs/
+node packages/micro-03-cognitive-wiki-and-u-gate/bin/wiki-ugate.mjs ugate docs/ [--json] [--window N] [--include-code]
+
+# shortlink-deliverable-portal
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs build deliverables site --title "Deliverables"
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs verify site
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs resolve site/manifest.json <id>
+```
+
+Run a package's tests from inside its folder with `node --test`. Exit codes are documented in each package's own README (generally 0 = pass, 1 = findings, 2 = bad usage).
+
+These three are the MIT-licensed free tools. Separate, standalone paid micro-packs and a Master bundle are published elsewhere; they are not part of this repository.
+
 ## Tests
 
 ```bash

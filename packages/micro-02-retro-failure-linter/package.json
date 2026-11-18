@@ -1,0 +1,13 @@
+{
+  "name": "retro-failure-linter",
+  "version": "1.0.0",
+  "description": "Post-mortem and session failure linter: classifies repeated failures, unverified claims, guardrail drift, scope creep and tool misuse in JSONL or Markdown logs, and enforces a stop-after-2-failures escalation rule.",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "engines": { "node": ">=20" },
+  "bin": { "retro-lint": "./bin/retro-lint.mjs" },
+  "exports": { ".": "./src/linter.mjs" },
+  "scripts": { "test": "node --test" },
+  "keywords": ["postmortem", "linter", "agent", "session-log", "escalation"]
+}

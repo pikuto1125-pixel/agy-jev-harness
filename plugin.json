@@ -2,7 +2,7 @@
   "name": "jev-harness",
   "displayName": "Jev Harness: self-evolving multi-desk agent harness",
   "description": "gemini-decision-1 harness: router, command guard, voice gate, desk bus, verbatim relay, 4-persona evaluator, weekly dock.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "logo": "assets/logo.svg",
   "author": {
     "name": "pikuto1125-pixel",

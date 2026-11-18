@@ -157,6 +157,34 @@ node $R/security_scan.mjs --history
 デスク間メッセージは作業場の `Tasks/_bus/`（スターターが git 管理外にします）。ユーザーの言葉は既定でハッシュのみ保存（`JEV_STORE_PREV_INPUT=1` で前回発話を平文保存）。
 認証情報ファイル（`.env`・`*.pem`・`.ssh`・`auth.json` など）は全ての `--file` / `--user` / `--deliverable` / `--transcript` 読み込みで拒否されます。
 
+## v0.2.0：モジュール式の無料ツール（`packages/`）
+
+v0.2.0 では、`packages/` 以下に単体で動くコマンドラインツールを 3 つ追加しました。それぞれ独立した Node パッケージで、README・テスト・`LICENSE`（MIT）を持っています。Node 20 以上が必要で、npm 依存はゼロ、ネットワーク通信はなく、同じ入力には同じ出力を返します。このリポジトリの他の部分には依存しないので、フォルダ 1 つだけ取り出して単独で使えます。
+
+| パッケージ | 内容 | CLI |
+| --- | --- | --- |
+| `packages/micro-02-retro-failure-linter` | AI エージェントのセッションログ（JSONL / Markdown）から、繰り返し失敗・未検証の「完了」報告・ガードレール回避・スコープ拡大・ツールの誤用を検出します。同じ失敗が 3 回目に出ると終了コード 1 を返します。 | `retro-lint` |
+| `packages/micro-03-cognitive-wiki-and-u-gate` | Markdown wiki を検査し（1 ファイル 1 役割・入口ファイルの長さ・リンク切れ・孤立ページ）、未解決の `[U]` マーカーと出典のない統計値を止めます。 | `wiki-ugate` |
+| `packages/micro-04-shortlink-deliverable-portal` | 成果物フォルダから、ASCII のみの静的ショートリンクポータル（`/m/id/<id>.html`・検索付き `index.html`・`manifest.json`）を生成し、検証します。 | `shortlink-portal` |
+
+```bash
+# retro-failure-linter
+node packages/micro-02-retro-failure-linter/bin/retro-lint.mjs session.jsonl [--format json|md] [--threshold 2] [--out report.md]
+
+# cognitive-wiki-and-u-gate
+node packages/micro-03-cognitive-wiki-and-u-gate/bin/wiki-ugate.mjs lint docs/
+node packages/micro-03-cognitive-wiki-and-u-gate/bin/wiki-ugate.mjs ugate docs/ [--json] [--window N] [--include-code]
+
+# shortlink-deliverable-portal
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs build deliverables site --title "Deliverables"
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs verify site
+node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs resolve site/manifest.json <id>
+```
+
+各パッケージのテストは、そのフォルダ内で `node --test` を実行します。終了コードは各パッケージの README に記載しています（概ね 0 = 合格、1 = 指摘あり、2 = 使い方の誤り）。
+
+この 3 つは MIT ライセンスの無料ツールです。有料の単体マイクロパックと Master 版は別に公開しており、このリポジトリには含まれません。
+
 ## テスト
 
 ```bash
