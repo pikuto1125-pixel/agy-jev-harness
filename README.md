@@ -196,6 +196,11 @@ Run a package's tests from inside its folder with `node --test`. Exit codes are 
 
 These three are the MIT-licensed free tools. Separate, standalone paid micro-packs and a Master bundle are published elsewhere; they are not part of this repository.
 
+### Get it
+
+- **Free, MIT:** the three tools above are attached to the [v0.2.0 GitHub release](https://github.com/pikuto1125-pixel/agy-jev-harness/releases/tag/v0.2.0), together with `SHA256SUMS-FREE-v0.2.0.txt` for checking the downloads.
+- **Skill packs, USD:** five paid skill packs, and one bundle with all five for $89, are live on [Agensi](https://www.agensi.io/creators/creator-1260). They are sold separately from this repository.
+
 ## Tests
 
 ```bash
