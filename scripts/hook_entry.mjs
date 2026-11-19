@@ -1,18 +1,20 @@
 #!/usr/bin/env node
-// hook_entry.mjs — Antigravity lifecycle hook entry point (SessionStart / PreInvocation / PreToolUse).
+// hook_entry.mjs — Antigravity lifecycle hook entry point (SessionStart / PreInvocation / PreToolUse / PostToolUse / Stop).
 //
 // Contract: JSON on stdin, JSON on stdout, camelCase keys.
 //   PreInvocation: {"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}  -> inject context, {} -> nothing
-//   PreToolUse:    {"decision":"ask"|"deny","reason":"..."}                      -> destructive run_command, {} -> no opinion
+//   PreToolUse:    {"decision":"ask"|"deny","reason":"..."}                      -> destructive run_command / vendor residue, {} -> no opinion
+//   PostToolUse:   {}                                                            -> rolls back pending write reservations when tool failed
+//   Stop:          {"decision":"allow"}                                          -> skips heavy stop telemetry when continuationActive is true
 //
 // FAIL-SAFE: this script must NEVER block or break the agent loop.
 //   * any exception, bad stdin, missing key, network error -> prints `{}` and exits 0
 //   * time budget: rescue 1500 ms + routing 1500 ms, hard watchdog JEV_HOOK_BUDGET_MS (default 4000 ms) -> prints `{}`
 //   * without an opted-in Gemini key the router runs in deterministic zero-token mode and only speaks up when a
-//     clearly actionable signal (public / irreversible / pivot / overreach) is present.
+//     clearly actionable signal (public / irreversible / pivot / overreach / ruling / musing) is present.
 //
-// Privacy: per-conversation state lives in hook_state_<hash(conversationId)>.json. It stores hashes and counters,
-// never the user's words (the previous message is kept in plain text only with JEV_STORE_PREV_INPUT=1).
+// Privacy: per-conversation state lives in hook_state_<hash(conversationId)>.json. It stores hashes, basenames and
+// counters, never the user's words (the previous message is kept in plain text only with JEV_STORE_PREV_INPUT=1).
 //
 // Env: JEV_HARNESS_MODE=off|lite|full (default full), JEV_HARNESS_VERBOSE=1 (always inject the lane line),
 //      JEV_GUARD_MODE=ask|deny|force_ask|off (PreToolUse), JEV_STORE_PREV_INPUT=1 (opt-in plain-text prevInput).
@@ -21,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { atomicWriteFileSync, isMain, readStdin, sha256, stateDir } from './jev_client.mjs';
 import { rescueNuance } from './nuance_rescue.mjs';
+import { checkProse, verifyProseReceipt } from './prose_slop_gate.mjs';
 import { routeTurn } from './smart_router.mjs';
 import { evaluateToolCall } from './tool_guard.mjs';
 import { readTranscriptTurns, scanSummaries } from './verbatim_relay.mjs';
@@ -33,6 +36,8 @@ export const RESCUE_TIMEOUT_MS = 1500;
 export const ROUTE_TIMEOUT_MS = 1500;
 export const DEFAULT_WATCHDOG_MS = 4000;
 const STATE_TTL_DAYS = 30;
+const RESERVATION_TTL_MS = 3600_000;
+const WRITE_TOOL_NAMES = new Set(['write_file', 'write_to_file', 'edit_file', 'replace_file_content', 'multi_replace_file_content']);
 
 const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? '').trim());
 
@@ -85,6 +90,64 @@ function pick(payload, ...keys) {
   return '';
 }
 
+function pickWriteTarget(args = {}) {
+  return pick(args, 'AbsolutePath', 'absolutePath', 'TargetFile', 'targetFile', 'file_path', 'filePath', 'Path', 'path');
+}
+
+export function isDraftProsePath(target = '') {
+  const norm = String(target || '').replace(/\\/g, '/').toLowerCase();
+  if (!norm || !/\.(?:md|txt)$/i.test(norm)) return false;
+  if (/\/(?:_change_backups|_backups|scratch|tmp|node_modules|\.jev-state|tests?)\//.test(norm)) return false;
+  return /(?:\/(?:drafts?|posts?|content|articles?|proposals?|outreach)\/|(?:^|\/)(?:x_post|tweet|draft|proposal|outreach|reply|release_notes|announcement)[^/]*\.(?:md|txt)$)/i.test(norm);
+}
+
+function reconstructWriteContent(toolName, args = {}, target = '') {
+  if (typeof args.Content === 'string') return { content: args.Content, fullTextKnown: true };
+  if (typeof args.CodeContent === 'string') return { content: args.CodeContent, fullTextKnown: true };
+  if (typeof args.content === 'string') return { content: args.content, fullTextKnown: true };
+
+  let disk = '';
+  let readOk = false;
+  if (target && (toolName === 'edit_file' || toolName === 'replace_file_content' || toolName === 'multi_replace_file_content')) {
+    try {
+      const resolved = path.resolve(target);
+      const st = fs.existsSync(resolved) ? fs.statSync(resolved) : null;
+      if (st && st.isFile() && st.size <= 512 * 1024) {
+        disk = fs.readFileSync(resolved, 'utf8');
+        readOk = true;
+      }
+    } catch {
+      disk = '';
+    }
+  }
+  if (readOk) {
+    let updated = disk;
+    if (typeof args.Target === 'string' && args.Target && typeof args.Replacement === 'string') {
+      updated = updated.split(args.Target).join(args.Replacement);
+      return { content: updated, fullTextKnown: true };
+    }
+    if (typeof args.TargetContent === 'string' && args.TargetContent && typeof args.ReplacementContent === 'string') {
+      updated = updated.split(args.TargetContent).join(args.ReplacementContent);
+      return { content: updated, fullTextKnown: true };
+    }
+    if (Array.isArray(args.ReplacementChunks)) {
+      for (const ch of args.ReplacementChunks) {
+        if (ch && typeof ch.TargetContent === 'string' && ch.TargetContent && typeof ch.ReplacementContent === 'string') {
+          updated = updated.split(ch.TargetContent).join(ch.ReplacementContent);
+        }
+      }
+      return { content: updated, fullTextKnown: true };
+    }
+  }
+  const parts = [];
+  if (typeof args.Replacement === 'string') parts.push(args.Replacement);
+  if (typeof args.ReplacementContent === 'string') parts.push(args.ReplacementContent);
+  if (Array.isArray(args.ReplacementChunks)) {
+    for (const ch of args.ReplacementChunks) if (ch && typeof ch.ReplacementContent === 'string') parts.push(ch.ReplacementContent);
+  }
+  return { content: parts.join('\n'), fullTextKnown: false };
+}
+
 /**
  * Zero-cloud decision. True when this conversation is bound to a local_only desk, or its privacy is uncertain (broken
  * sessions_keep.json / an unbound local_only desk could be this conversation). Never throws; no workspace -> false.
@@ -127,10 +190,91 @@ export async function handleHook(event, payload, env = process.env, opts = {}) {
   const mode = String(env.JEV_HARNESS_MODE || 'full').toLowerCase();
   if (mode === 'off') return {};
 
+  const convId = pick(payload, 'conversationId', 'session_id', 'sessionId') || 'default';
+
   if (event === 'PreToolUse') {
     const out = evaluateToolCall(payload, env, { findRoot: () => findWorkspaceRoot({ env, payload }) });
-    if (out.decision) appendEvent('guard', { rule: (String(out.reason || '').match(/guard:([a-z_0-9]+)/) || [])[1] || 'unknown', decision: out.decision }, env);
+    if (out.decision) {
+      appendEvent('guard', { rule: (String(out.reason || '').match(/guard:([a-z_0-9]+)/) || [])[1] || 'unknown', decision: out.decision }, env);
+      return out;
+    }
+    const call = payload?.toolCall;
+    const toolName = String(call?.name || '').toLowerCase();
+    const guardMode = String(env.JEV_GUARD_MODE || 'ask').toLowerCase();
+    if (guardMode !== 'off' && WRITE_TOOL_NAMES.has(toolName)) {
+      const args = call?.args && typeof call.args === 'object' ? call.args : {};
+      const target = pickWriteTarget(args);
+      if (isDraftProsePath(target)) {
+        const { content, fullTextKnown } = reconstructWriteContent(toolName, args, target);
+        const det = content ? checkProse(content, { targetPath: target }) : null;
+        if (fullTextKnown && det && det.hardFailCount > 0) {
+          appendEvent('guard', { rule: 'prose_vendor_residue', decision: 'deny' }, env);
+          return {
+            decision: 'deny',
+            reason: '[jev-harness guard:prose_vendor_residue] Draft prose contains AI vendor citation residue outside code blocks. Remove it before writing.',
+          };
+        }
+        const receiptOk = fullTextKnown && content ? verifyProseReceipt(target, content, { env }).ok : false;
+        if (!receiptOk) {
+          const conv = loadState(convId, env);
+          conv.pendingProseGate = {
+            targetLabel: path.basename(target),
+            targetHash: sha256(path.resolve(target)).slice(0, 16),
+            toolCallId: String(call?.id || ''),
+            toolName,
+            shapeCount: det ? det.strongShapeCount + det.advisoryShapeCount : 0,
+            shortPostCount: det ? det.shortPostHits.length : 0,
+            reservedAt: new Date().toISOString(),
+          };
+          saveState(convId, conv, env);
+        }
+      }
+    }
     return out;
+  }
+
+  if (event === 'PostToolUse') {
+    const call = payload?.toolCall;
+    const toolName = String(call?.name || '').toLowerCase();
+    const errVal = payload?.error ?? payload?.result?.error ?? payload?.toolResult?.error;
+    const hasErrObj = typeof errVal === 'object' && errVal !== null ? Object.keys(errVal).length > 0 : Boolean(errVal);
+    const hasError = hasErrObj || payload?.isError === true || payload?.toolResult?.isError === true || payload?.status === 'error';
+    if (!hasError || !WRITE_TOOL_NAMES.has(toolName)) return {};
+
+    const conv = loadState(convId, env);
+    const toolCallId = String(call?.id || '');
+    if (conv.pendingProseGate && (!toolCallId || !conv.pendingProseGate.toolCallId || conv.pendingProseGate.toolCallId === toolCallId)) {
+      delete conv.pendingProseGate;
+      saveState(convId, conv, env);
+      appendEvent('guard', { rule: 'post_tool_rollback', decision: 'rollback' }, env);
+    }
+    return {};
+  }
+
+  if (event === 'Stop') {
+    const continuationActive = truthy(payload?.continuationActive ?? payload?.continuation_active);
+    if (continuationActive) {
+      // Lightweight skip during Stop continuation loops: avoid repeating telemetry or mutating state.
+      return { decision: 'allow' };
+    }
+    appendEvent(
+      'stop',
+      {
+        terminationReason: String(payload?.terminationReason || 'NO_TOOL_CALL').slice(0, 48),
+        hasError: Boolean(payload?.error),
+        continuationActive: false,
+      },
+      env
+    );
+    if (fs.existsSync(stateFileFor(convId, env))) {
+      const conv = loadState(convId, env);
+      const reservedAt = Date.parse(conv.pendingProseGate?.reservedAt || '');
+      if (conv.pendingProseGate && (!Number.isFinite(reservedAt) || Date.now() - reservedAt > RESERVATION_TTL_MS)) {
+        delete conv.pendingProseGate;
+        saveState(convId, conv, env);
+      }
+    }
+    return { decision: 'allow' };
   }
 
   if (event === 'SessionStart') {
@@ -139,7 +283,6 @@ export async function handleHook(event, payload, env = process.env, opts = {}) {
   }
   if (event !== 'PreInvocation') return {};
 
-  const convId = pick(payload, 'conversationId', 'session_id', 'sessionId') || 'default';
   const input = pick(payload, 'lastUserInput', 'userInput', 'prompt', 'userMessage').trim();
   const transcriptPath = pick(payload, 'transcriptPath', 'transcript_path');
   const conv = loadState(convId, env);
@@ -179,6 +322,14 @@ export async function handleHook(event, payload, env = process.env, opts = {}) {
     }
   } catch {
     /* the bus must never stop a turn */
+  }
+
+  // 1c) Consume pending prose gate reservation from a successful draft write.
+  if (conv.pendingProseGate?.targetLabel) {
+    const pg = conv.pendingProseGate;
+    delete conv.pendingProseGate;
+    const hitNote = pg.shapeCount || pg.shortPostCount ? ` (shape=${pg.shapeCount || 0}, sns=${pg.shortPostCount || 0})` : '';
+    steps.push(sys(`[jev-harness prose-gate] Draft "${pg.targetLabel}" updated${hitNote}. Verify with: node scripts/prose_slop_gate.mjs check --file <path>`));
   }
 
   // 2) Routing + voice note: PreInvocation fires after every tool step too, so act only on a NEW user message.

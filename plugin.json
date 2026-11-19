@@ -1,8 +1,8 @@
 {
   "name": "jev-harness",
   "displayName": "Jev Harness: self-evolving multi-desk agent harness",
-  "description": "gemini-decision-1 harness: router, command guard, voice gate, desk bus, verbatim relay, 4-persona evaluator, weekly dock.",
-  "version": "0.2.0",
+  "description": "gemini-decision-1 harness: intent router, command & prose-slop gates, voice gate, PostToolUse/Stop hooks, desk bus, 4-persona eval.",
+  "version": "0.3.0",
   "logo": "assets/logo.svg",
   "author": {
     "name": "pikuto1125-pixel",

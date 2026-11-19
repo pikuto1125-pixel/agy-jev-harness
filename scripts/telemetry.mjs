@@ -11,7 +11,7 @@ import { stateDir } from './jev_client.mjs';
 
 const MAX_BYTES = 1024 * 1024;
 
-export const EVENT_FILES = { guard: 'guard_events.jsonl', eval: 'eval_history.jsonl', compaction: 'compaction_events.jsonl' };
+export const EVENT_FILES = { guard: 'guard_events.jsonl', eval: 'eval_history.jsonl', compaction: 'compaction_events.jsonl', stop: 'stop_events.jsonl' };
 
 export function eventFile(kind, env = process.env, dir = '') {
   return path.join(dir || stateDir(env), EVENT_FILES[kind] || `${kind}.jsonl`);

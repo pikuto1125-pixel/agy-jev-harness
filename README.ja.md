@@ -6,7 +6,7 @@
 
 | | **モード 1：AGY プラグインとして置くだけ** | **モード 2：フル・マルチデスク作業場ハーネス** |
 |---|---|---|
-| 得られるもの | フック・スマートルーター・音声ゲート・圧縮後のニュアンス救出・コマンドガード | モード 1 の全部 **＋** 常駐デスク・セッションバス・引き継ぎ規律・逐語リレー・4 ペルソナ評価・週次 Harness Dock・肥大ガード |
+| 得られるもの | フック（`PreInvocation` / `PreToolUse` / `PostToolUse` / `Stop`）・4 意図スマートルーター・文章スロップゲート・音声ゲート・圧縮後のニュアンス救出・コマンドガード | モード 1 の全部 **＋** 常駐デスク・セッションバス・引き継ぎ規律・逐語リレー・4 ペルソナ評価・週次 Harness Dock・肥大ガード |
 | 導入 | プラグインフォルダへ `git clone` | `node scripts/init_workspace.mjs --target ./my-hq` |
 | 手間 | 1 コマンド | 1 コマンド＋デスクの紐づけ |
 
@@ -26,9 +26,12 @@ node ~/.gemini/config/plugins/jev-harness/scripts/jev_client.mjs doctor --offlin
 
 （`agy plugin install https://github.com/pikuto1125-pixel/agy-jev-harness` でも同じ結果です。）すぐに使えるもの：
 
-- **`PreInvocation` フック**：別レーンが要る発話にだけルーターのヒント、圧縮が本当に起きたあとはニュアンスのカプセル、言い直しには 1 行の音声メモ、そして他デスクからの未読メッセージ（モード 2）。
-- **`PreToolUse` フック**：`rm -rf /`・`git push --force`・`terraform destroy` などの破壊的コマンドの前に確認。シェルの包み（`bash -c`、`pwsh -Command` / `-exec -nop -enc`、`cmd /c`、`sudo -u x`、`env A=1`）は 3 階層まで開いて判定。作業場モードでは 120 KB 超のファイルの丸読みにも確認が入ります。
-- **スマートルーター**：手元のモデル枠と残クォータで「実装 → 読み取り専用の監査 → 最終確認」を配分。
+- **`PreInvocation` フック**：別レーンや意図ヒント（`ruling` / `musing`、確信度 0.6 以上）が要る発話にだけルーターのヒント、圧縮が本当に起きたあとはニュアンスのカプセル、言い直しには 1 行の音声メモ、書込成功後の文章ゲート確認リマインダ、他デスクからの未読メッセージ（モード 2）。
+- **`PreToolUse` フック**：`rm -rf /`・`git push --force`・`terraform destroy` などの破壊的コマンドの前に確認。シェルの包み（`bash -c`、`pwsh -Command` / `-exec -nop -enc`、`cmd /c`、`sudo -u x`、`env A=1`）は 3 階層まで開いて判定。作業場モードでは 120 KB 超のファイルの丸読みにも確認が入ります。ドラフト系パス（`drafts/`・`posts/`・`outreach/`・`x_post*` 等の `.md`/`.txt`）で全文が取得でき `JEV_GUARD_MODE != off` のときはコード外ベンダ残骸を遮断し、未レシート時は書込後検査の予約を立てます。
+- **`PostToolUse` フック（AGY 1.5.12）**：ファイル書込・編集ツールが失敗したときに、立てていた書込予約状態をロールバックして古い通知の残留を防ぎます。
+- **`Stop` フック（AGY 1.5.12）**：`continuationActive` が真のときはテレメトリ記録や状態変更を行わず軽量スキップし、通常終了時のみ終了理由とエラー有無（`terminationReason` / `hasError`）を記録します。
+- **スマートルーター**：8 軸のルーティング ＋ スラッシュコマンド不要の 4 意図分類（`directive` / `ruling` / `musing` / `question`） ＋ 手元のモデル枠と残クォータで「実装 → 読み取り専用の監査 → 最終確認」を配分。
+- **文章スロップゲート（`prose_slop_gate.mjs`）**：コードブロック・バッククォート引用・`<code>`/`<pre>` 内を誤検知除外した上で、ベンダ残骸（`oaicite` 等）・日英の定型 AI 表現・SNS 短文ルール（`--kind sns|x_post` 指定時または `x_post*`/`tweet*`/`sns/` パス時にタグ過多・リプライ誘導・重み付き文字数を検査）を 0 トークンで検査し、SHA-256 合格レシートを発行・照合（`check` / `verify`）します。
 - **音声ゲート**：発話の区切り判定・言い直しの整理・取り返しのつかない音声コマンドのフェイルクローズ確認。
 - スキル `jev-harness`・`jev-workspace`・`voice-conversation-jev` と、読み取り専用の `jev-auditor` エージェント。
 
@@ -62,7 +65,7 @@ flowchart LR
   BUS <--> V[venture_lab] & Q[quant_lab] & S[creative_studio] & D[harness_dock]
   H[hooks.json] -->|PreInvocation| E[hook_entry.mjs]
   E --> R[smart_router] & N[nuance_rescue] & BUS
-  H -->|PreToolUse| G[tool_guard]
+  H -->|PreToolUse / PostToolUse / Stop| G[tool_guard & prose_slop_gate]
   D -->|ドックの日| F[dock_feeder digest] --> B[bloat_guard]
   V & Q & S -->|出口ゲート| A[anchored_eval 4 ペルソナ＋アッセイ]
   C -->|relay current| P[verbatim_relay]
@@ -71,9 +74,12 @@ flowchart LR
 ```
  発話 ─▶ hooks.json ─▶ hook_entry.mjs ─┬─ PreInvocation ─▶ nuance_rescue（本物の圧縮のあと）
                                        │                 ├▶ session_bus drain（他デスクの未読を 1 回だけ）
-                                       │                 └▶ smart_router（レーン＋実装/監査/最終の配分）＋音声メモ
-                                       └─ PreToolUse ────▶ tool_guard（破壊的コマンド・巨大ファイルの丸読み）
- 随時：  verbatim_relay・anchored_eval・anchored_gate・voice_conversation_gate・lean_outline
+                                       │                 ├▶ 予約済 prose-gate 案内（書込成功時）
+                                       │                 └▶ smart_router（レーン＋4意図＋配分）＋音声メモ
+                                       ├─ PreToolUse ────▶ tool_guard（破壊的コマンド・巨大ファイル）＋下書き予約
+                                       ├─ PostToolUse ───▶ 書込失敗時の予約ロールバック
+                                       └─ Stop ──────────▶ continuationActive=true 時の軽量スキップ
+ 随時：  prose_slop_gate・verbatim_relay・anchored_eval・anchored_gate・voice_conversation_gate・lean_outline
  毎週：  dock_feeder（ガード／評価／圧縮／肥大／バックログ）─▶ harness_dock/WEEKLY_DIGEST.md
  共通：  jev_client（オプトインのキー・マスク・安全な読み込み・分割・doctor）・workspace・telemetry
 ```
@@ -115,6 +121,8 @@ node $R/anchored_eval.mjs grade --pack web_app_ui --media home.png,detail.png --
 R=~/.gemini/config/plugins/jev-harness/scripts          # またはモード 2 の clone
 node $R/jev_client.mjs doctor [--offline]
 node $R/smart_router.mjs --text "公開前にこのリポジトリを監査して" --models "flash,carbon,argon" --quota "gemini=50%,carbon=5%"
+node $R/prose_slop_gate.mjs check --file draft.md [--kind auto|general|sns|x_post] [--strict]
+node $R/prose_slop_gate.mjs verify --file draft.md [--max-age-hours 24]
 node $R/init_workspace.mjs --target <dir> [--lang ja|en] [--force] [--dry-run]
 node $R/session_bus.mjs send --to <desk|convId> --from <desk> --message "..."
 node $R/session_bus.mjs broadcast --from <desk> --message "..."
@@ -133,7 +141,7 @@ node $R/security_scan.mjs --history
 ```
 
 設定：`JEV_HARNESS_MODE=off|lite|full`、`JEV_GUARD_MODE=ask|deny|force_ask|off`、`JEV_WORKSPACE_DIR`、`JEV_WORKSPACE_MODE=1`、`JEV_LARGE_READ_GUARD=off`、
-`JEV_MODELS`、`JEV_QUOTA`、`JEV_USER_LABEL`、`JEV_DAILY_CALL_CAP`、`JEV_BRAIN_DIR`、`JEV_SCAN_EXTRA_B64`（公開してはいけない語。スキャン時にだけ渡す）。
+`JEV_MODELS`、`JEV_QUOTA`、`JEV_USER_LABEL`、`JEV_DAILY_CALL_CAP`、`JEV_BRAIN_DIR`、`JEV_PROSE_RECEIPTS_FILE`、`JEV_SCAN_EXTRA_B64`（公開してはいけない語。スキャン時にだけ渡す）。
 
 音声の確認はフェイルクローズです。`はい、削除しないで` はもちろん、取り返しのつかないコマンドへの `うん、ビルドフォルダは残して` も解錠できません
 （`confirmation_contains_negation`、`missing_irreversible_verb_echo`）。Jev の有無に関わらず同じです。
@@ -153,9 +161,15 @@ node $R/security_scan.mjs --history
 **コスト**：出力トークンは 0。入力は約 **$0.10 / 100 万トークン**、または無料枠 約 **10,000 リクエスト/日**（記載時点の値。最新の料金・上限は公式で確認してください）。
 1 日の呼び出し上限（`JEV_DAILY_CALL_CAP`）と 429 後の 5 分クールダウンを内蔵。評価器はアッセイ実行時に 1 ペルソナあたり 3 リクエスト（対象・gold・near-miss）、`--persona all` で 12 リクエストです。
 
-会話ごとの状態はハッシュとカウンタ、集計用のテレメトリは規則 ID とステータスのみ（あなたの言葉は入りません）で、`PLUGIN_DATA` または `~/.config/jev-harness` に置きます。
+会話ごとの状態はハッシュ・ファイル名・カウンタ、文章ゲートの SHA-256 合格レシートは対象パスのハッシュとファイル名のみ（ホームディレクトリパスは保存しません）、集計用のテレメトリは規則 ID とステータスのみ（あなたの言葉は入りません）で、`PLUGIN_DATA` または `~/.config/jev-harness` に置きます。
 デスク間メッセージは作業場の `Tasks/_bus/`（スターターが git 管理外にします）。ユーザーの言葉は既定でハッシュのみ保存（`JEV_STORE_PREV_INPUT=1` で前回発話を平文保存）。
 認証情報ファイル（`.env`・`*.pem`・`.ssh`・`auth.json` など）は全ての `--file` / `--user` / `--deliverable` / `--transcript` 読み込みで拒否されます。
+
+## v0.3.0：文章スロップゲート・4 意図ルーター・AGY 1.5.12 フック対応
+
+- **`scripts/prose_slop_gate.mjs`**：ベンダ引用残骸（`oaicite` や `[cite: ...]` 等。コードブロック・バッククォート引用・`<code>`/`<pre>` 内は自動除外）、日英の定型 AI 構文、SNS 短文ルール（`--kind sns|x_post` または `x_post*`/`tweet*`/`sns/` パス時にハッシュタグ上限・リプライ誘導禁止・重み付き文字数を検査）を 0 トークンで決定論チェックし、改行正規化後の SHA-256 合格レシートを発行・照合（`check` / `verify`）します。
+- **`scripts/smart_router.mjs`**：スラッシュコマンドなしで 4 種類の意図（`directive` / `ruling` / `musing` / `question`）をオフラインヒューリスティックと `gemini-decision-1`（`choice` 質問）の両方で分類します。
+- **`hooks.json` + `scripts/hook_entry.mjs`**：AGY 1.5.12 仕様の `PostToolUse`（書込失敗時の状態予約ロールバック）および `Stop`（`continuationActive` 真時の軽量スキップ）を追加しました。
 
 ## v0.2.0：モジュール式の無料ツール（`packages/`）
 
@@ -184,6 +198,11 @@ node packages/micro-04-shortlink-deliverable-portal/bin/shortlink-portal.mjs res
 各パッケージのテストは、そのフォルダ内で `node --test` を実行します。終了コードは各パッケージの README に記載しています（概ね 0 = 合格、1 = 指摘あり、2 = 使い方の誤り）。
 
 この 3 つは MIT ライセンスの無料ツールです。有料の単体マイクロパックと Master 版は別に公開しており、このリポジトリには含まれません。
+
+### 入手先
+
+- **無料・MIT**：プラグイン本体および上記 3 ツールは [GitHub Releases](https://github.com/pikuto1125-pixel/agy-jev-harness/releases) で公開しており、照合用の SHA-256 チェックサムファイルを添付しています。
+- **スキルパック（USD）**：5 つの有料スキルパックと 5 本まとめたバンドル（$89）は [Agensi](https://www.agensi.io/creators/creator-1260) で販売しています（本リポジトリとは別配布）。
 
 ## テスト
 

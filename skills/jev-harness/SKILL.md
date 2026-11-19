@@ -24,13 +24,22 @@ Checks node, manifest, state dir, key opt-in, hooks.json, and the real hook entr
 node "$PLUGIN_ROOT/scripts/smart_router.mjs" --text "<the user's request>" [--quota "sonnet=40%,claude=0"] [--models "flash,carbon,argon,local"]
 ```
 
-- Lane `lite` / `standard` / `deep` / `guarded` from 8 axes; `roles` from `allocateModelRoles()` using 4 more axes.
+- Lane `lite` / `standard` / `deep` / `guarded` from 8 axes; 4-way `intent` (`directive` / `ruling` / `musing` / `question`, works without leading slash commands); `roles` from `allocateModelRoles()` using 4 more axes.
 - Only enabled slots with quota take part. `--models` / `JEV_MODELS` lists the slots you have (no Claude plan? leave Claude out).
   `claude=0` zeroes a whole family. Add or retune slots in `<config dir>/model_profiles.json` (start from `config/model_profiles.example.json`).
   Slots of one `pool` share an allowance: `--quota carbon=5%` also limits `argon` and `flash` (lookup: slot id, pool, family, lowest explicit sibling).
 - Note `no_independent_auditor:audit_skipped` means a required audit had nobody but the builder; `no_independent_final_reviewer:final_check_skipped` says the same for a required final check. Say so, do not pretend it was done.
   Quota precedence: slot id > pool > family > sibling propagation (`gemini=50%,carbon=5%` gives carbon 0.05, argon / flash 0.50).
 - The auditor in a `ROLES:` line reads and reports; it never edits.
+
+## 1b. Prose slop gate and SHA-256 receipts (0 tokens)
+
+```bash
+node "$PLUGIN_ROOT/scripts/prose_slop_gate.mjs" check --file <draft.md> [--kind auto|general|sns|x_post] [--strict]
+node "$PLUGIN_ROOT/scripts/prose_slop_gate.mjs" verify --file <draft.md> [--max-age-hours 24]
+```
+
+Checks EN/JA drafts for AI vendor citation residue outside code/backtick spans, AI boilerplate phrasing, and SNS post limits (max hashtags, reply-link prompts). Issues a SHA-256 pass receipt on pass and verifies file integrity before publishing.
 
 ## 2. Verbatim relay and nuance rescue
 

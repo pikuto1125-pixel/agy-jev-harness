@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// smart_router.mjs — 0-output-token, 12-question probability router + multi-model role allocator.
+// smart_router.mjs — 0-output-token, 13-question probability router + multi-model role allocator.
 //
-// One gemini-decision-1 call (12 yes/no questions, ~0.4 s, 0 output tokens) per user turn decides which
-// "lane" the turn should run in, so a weekly agent quota is not burned on chores a cheaper lane can do:
+// One gemini-decision-1 call (12 axis yes/no + 1 utterance_intent choice, ~0.4 s, 0 output tokens) per user turn decides
+// which "lane" the turn should run in, so a weekly agent quota is not burned on chores a cheaper lane can do:
 //
 //   lite     routine / mechanical work   -> cheapest model, no subagent fan-out, plain scripts first
 //   standard everything else             -> default model
@@ -23,7 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { clamp01, configDir, decide, isMain, noul, parseArgs, readStdin, readTextFileSafe, round3 } from './jev_client.mjs';
+import { choiceProbs, clamp01, configDir, decide, isMain, noul, parseArgs, readStdin, readTextFileSafe, round3 } from './jev_client.mjs';
 
 export const AXES = {
   hard_reasoning: {
@@ -82,7 +82,64 @@ export const ROLE_AXES = {
 
 export const ALL_AXES = { ...AXES, ...ROLE_AXES };
 
+export const UTTERANCE_INTENTS = ['directive', 'ruling', 'musing', 'question'];
+
+export const INTENT_QUESTION = {
+  utterance_intent: {
+    type: 'choice',
+    instructions:
+      'Classify the user message intent: directive (concrete task/edit/build/fix/investigate request), ruling (accept/reject/priority/GO sign-off), musing (thinking aloud, preference, tentative idea without asking for immediate execution), or question (asking how something works, current status, or comparison).',
+    criteria: {
+      directive: 'Clear request to build, edit, fix, run, investigate, or produce a deliverable.',
+      ruling: 'Decision or sign-off choosing, approving, rejecting, or setting priority (e.g. "1 OK", "scrap it", "GO", "approved").',
+      musing: 'Thinking aloud or expressing a wish/reflection without requesting immediate code or file changes.',
+      question: 'Pure question asking for an explanation, status check, reason, or comparison.',
+    },
+  },
+};
+
 // ───────────────────────── deterministic heuristic ─────────────────────────
+
+const LEADING_SLASH_RE = /^(?:\/(?:swarm|goal|plan|grill-me|boost|compact|learn)\b\s*)+/i;
+const RULING_CASE_RE = /(?:^|[\s、。!！])(?:GO|ＧＯ)(?=$|[\s、。!！でを])/;
+const RULING_JA_RE =
+  /(?:(?:^|[\s、。!！])(?:[0-9０-９]+(?:[・,、][0-9０-９]+)*\s*(?:番|案)?(?:は|も)?\s*(?:OK|ＯＫ|採用|決定|承認)|案[0-9０-９]+(?:は|も)?\s*(?:OK|ＯＫ|採用|決定)|全推奨|それで(?:進めて|いこう|OK|決定)|これで(?:進めて|OK|決定)|(?:それで|これで|そのまま|全案?|案?[0-9０-９]+(?:は|で)?)\s*go(?=$|[\s、。!！で]))|(?:^|[\s、。!！「『(]|[0-9０-９]+(?:番|案)?[はもをがで]?|これ[はも]|それ[はも]|案[0-9０-９]+[はも]?)(?:没|ボツ|見送り|却下)(?=$|[\s、。!！でにはをだ」』)]))/i;
+const RULING_EN_RE =
+  /(?:^\s*(?:approved?|go ahead|ship it|let'?s go with (?:option )?\d+|option \d+ is (?:good|approved)|reject(?: option \d+)?|drop option \d+|scrap (?:that|it)|lgtm)\b|\b(?:approve|reject|go with) option \d+\b)/i;
+const MUSING_RE =
+  /(?:だよな+|[\u3040-\u309f]たいよな+|[ほ欲]しいよな+|べきだよな+|いいよな+|あるよな+|ないよな+|んだよな+|かなあ|かなぁ|かもしれないな|と思うんだよね|どうなんだろうな|\b(?:i wonder if|maybe we could|thinking aloud|just musing|would be nice if|not sure if we should)\b)/i;
+const IMPERATIVE_RE =
+  /(?:実装して|作って|作れ|直して|直せ|修正して|改修して|追加して|削除して|消して|書いて|書け|調べて|調査して|確認して|実行して|走らせて|回して|送って|出して|更新して|反映して|変更して|作成して|構築して|生成して|テストして|検証して|まとめて|整理して|変換して|同期して|教えて|ください|してくれ|頼む|お願い(?:します|したい)?|やって|試して|\b(?:implement|create|build|fix|refactor|update|edit|delete|remove|run|execute|test|verify|write|audit|deploy|investigate|check)\b)(?!\s*(?:[ほ欲]しい|みたい|いきたい|もらいたい|いただきたい)(?:ん?だ)?よな)/i;
+const QUESTION_RE =
+  /(?:[?？]\s*$|ですか(?:[。?？\s]|$)|でしょうか|どうなって|どうすれば|なぜ|どれが|何が|いつ(?:頃|まで|から|に|か)|(?:^|[\s、。])いつ(?=$|[\s、。?？はが])|どこに|^(?:how|what|why|when|where|which|who|is|are|do|does|can|could|should|would)\b)/i;
+
+function extractCurrentMessage(input) {
+  const s = typeof input === 'string' ? input : JSON.stringify(input ?? '');
+  const idx = s.indexOf('CURRENT USER MESSAGE:\n');
+  return (idx >= 0 ? s.slice(idx + 'CURRENT USER MESSAGE:\n'.length) : s).trim();
+}
+
+/** Zero-token deterministic 4-way utterance intent classifier (works with or without leading slash commands). */
+export function classifyIntentHeuristic(text) {
+  const raw = extractCurrentMessage(text);
+  const body = raw.replace(LEADING_SLASH_RE, '').trim();
+  const make = (intent, confidence) => {
+    const rest = (1 - confidence) / (UTTERANCE_INTENTS.length - 1);
+    const probabilities = Object.fromEntries(UTTERANCE_INTENTS.map((k) => [k, round3(k === intent ? confidence : rest)]));
+    return { intent, confidence, probabilities, source: 'heuristic' };
+  };
+  if (!body) return make('directive', 0.5);
+  const isQuestionForm = QUESTION_RE.test(body);
+  if (RULING_CASE_RE.test(body) || RULING_JA_RE.test(body) || (!isQuestionForm && RULING_EN_RE.test(body))) {
+    return make('ruling', 0.88);
+  }
+  const hasImperative = IMPERATIVE_RE.test(body);
+  if (MUSING_RE.test(body) && !hasImperative) return make('musing', 0.84);
+  if (isQuestionForm && !/\b(?:fix|implement|create|build|refactor|edit|delete|deploy|audit)\b/i.test(body) && !/(?:作って|直して|修正して|実装して|削除して|書いて|実行して)/.test(body)) {
+    return make('question', 0.82);
+  }
+  return make('directive', hasImperative ? 0.86 : 0.7);
+}
 
 const H = {
   hard_reasoning: /(設計|アーキテクチャ|原因(を|が)?(調べ|特定|究明)|なぜ.*(落ち|動かない|失敗)|デバッグ|リファクタ|最適化|トレードオフ|方針|architect|design|debug|root cause|race condition|refactor|optimi[sz]e|trade-?off|why (does|is|did)|investigate)/i,
@@ -103,11 +160,26 @@ const H = {
 export function heuristicAnswers(input, questions = ALL_AXES) {
   const text = typeof input === 'string' ? input : JSON.stringify(input ?? '');
   const out = {};
-  for (const key of Object.keys(questions)) {
+  for (const [key, spec] of Object.entries(questions)) {
+    if (key === 'utterance_intent' || spec?.type === 'choice') {
+      const cls = classifyIntentHeuristic(text);
+      out[key] = { choice: cls.intent, confidence: cls.confidence, probabilities: cls.probabilities };
+      continue;
+    }
     const re = H[key];
     out[key] = { noul: re && re.test(text) ? 0.85 : 0.08 };
   }
   return out;
+}
+
+export function parseIntentAnswer(answers, fallbackText = '') {
+  const a = answers?.utterance_intent;
+  if (a && typeof a.choice === 'string' && UTTERANCE_INTENTS.includes(a.choice)) {
+    const probs = choiceProbs(answers, 'utterance_intent', UTTERANCE_INTENTS);
+    const conf = clamp01(Number.isFinite(Number(a.confidence)) ? Number(a.confidence) : probs[a.choice] || 0.6);
+    return { intent: a.choice, confidence: round3(conf), probabilities: probs, source: 'jev' };
+  }
+  return classifyIntentHeuristic(fallbackText);
 }
 
 // ───────────────────────── lane selection (pure) ─────────────────────────
@@ -131,9 +203,14 @@ const LANE_HINT = {
 };
 
 export function buildHint(result, { verbose = false } = {}) {
-  const { lane, axes, source, roles } = result;
+  const { lane, axes, source, roles, intent, intentConfidence } = result;
   const lines = [];
   if (LANE_HINT[lane]) lines.push(LANE_HINT[lane]);
+  if (intent === 'ruling' && (intentConfidence ?? 0) >= 0.6) {
+    lines.push('INTENT[ruling]: Decision given. Record it and proceed without re-asking confirmation (subject to any active safety guard).');
+  } else if (intent === 'musing' && (intentConfidence ?? 0) >= 0.6) {
+    lines.push('INTENT[musing]: Thinking aloud. Avoid unrequested edits; outline grounded options and ask at most one clarifying question if needed.');
+  }
   if ((axes.pivot ?? 0) >= 0.6) lines.push('PIVOT: the user may be changing direction. Re-read their last message literally; drop earlier plan assumptions that it contradicts.');
   if ((axes.overreach ?? 0) >= 0.6) lines.push('OVERREACH: the user is signalling scope creep. Do only what is asked; list (do not perform) anything extra.');
   if ((axes.underspecified ?? 0) >= 0.65 && lane !== 'lite') lines.push('UNDERSPECIFIED: ask exactly one clarifying question before large work.');
@@ -143,9 +220,10 @@ export function buildHint(result, { verbose = false } = {}) {
     lines.push(`ROLES: ${roles.label}.${n} Follow this split; the auditor reads but never edits.`);
   }
   if (!lines.length && !verbose) return '';
-  const compact = Object.entries(axes)
+  const compactAxes = Object.entries(axes)
     .map(([k, v]) => `${k}=${round3(v)}`)
     .join(' ');
+  const compact = intent ? `${compactAxes}${compactAxes ? ' ' : ''}intent=${intent}(${round3(intentConfidence ?? 0)})` : compactAxes;
   return `[jev-router:${source}] ${lines.join(' ')}${verbose || lines.length ? `\n(${compact})` : ''}`.trim();
 }
 
@@ -376,17 +454,23 @@ export function allocateModelRoles(axes = {}, quota = undefined, opts = {}) {
 export async function routeTurn(userInput, { previousInput = '', timeoutMs = 3000, quota = undefined, enabled = undefined, models = undefined, verbose = false, ...opts } = {}) {
   const text = String(userInput ?? '').trim();
   if (!text || TRIVIAL_RE.test(text)) {
-    return { lane: 'standard', axes: {}, source: 'skip-trivial', hint: '', apiCalls: 0 };
+    return { lane: 'standard', axes: {}, intent: 'trivial', intentConfidence: 1, intentProbs: {}, intentSource: 'skip-trivial', source: 'skip-trivial', hint: '', apiCalls: 0 };
   }
   const input = previousInput
     ? `PREVIOUS USER MESSAGE:\n${String(previousInput).slice(0, 1500)}\n\nCURRENT USER MESSAGE:\n${text.slice(0, 4000)}`
     : `CURRENT USER MESSAGE:\n${text.slice(0, 4000)}`;
-  const r = await decide({ input, questions: ALL_AXES, heuristic: heuristicAnswers, timeoutMs, ...opts });
+  const questions = { ...ALL_AXES, ...INTENT_QUESTION };
+  const r = await decide({ input, questions, heuristic: heuristicAnswers, timeoutMs, ...opts });
   const axes = {};
   for (const k of Object.keys(ALL_AXES)) axes[k] = clamp01(noul(r.answers, k, 0));
+  const parsedIntent = parseIntentAnswer(r.answers, text);
   const result = {
     lane: chooseLane(axes),
     axes,
+    intent: parsedIntent.intent,
+    intentConfidence: parsedIntent.confidence,
+    intentProbs: parsedIntent.probabilities,
+    intentSource: r.source === 'heuristic' ? 'heuristic' : parsedIntent.source,
     source: r.source,
     degraded: r.degraded,
     apiCalls: r.source === 'jev' || r.source === 'jev+heuristic' ? r.chunks : 0,

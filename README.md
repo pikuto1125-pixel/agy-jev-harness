@@ -6,7 +6,7 @@ Two ways to use one repository:
 
 | | **Mode 1: drop-in AGY plugin** | **Mode 2: full multi-desk workspace harness** |
 |---|---|---|
-| What you get | hooks, smart router, voice gate, compaction rescue, command guard | everything in Mode 1 **plus** persistent desks, session bus, handover discipline, verbatim relay, 4-persona evaluator, weekly Harness Dock, bloat guard |
+| What you get | hooks (`PreInvocation`, `PreToolUse`, `PostToolUse`, `Stop`), 4-way intent router, prose slop gate, voice gate, compaction rescue, command guard | everything in Mode 1 **plus** persistent desks, session bus, handover discipline, verbatim relay, 4-persona evaluator, weekly Harness Dock, bloat guard |
 | Install | `git clone` into the plugins folder | `node scripts/init_workspace.mjs --target ./my-hq` |
 | Effort | one command | one command, then bind your desks |
 
@@ -26,9 +26,12 @@ node ~/.gemini/config/plugins/jev-harness/scripts/jev_client.mjs doctor --offlin
 
 (`agy plugin install https://github.com/pikuto1125-pixel/agy-jev-harness` does the same.) You get, immediately:
 
-- **`PreInvocation` hook**: a router hint only when a turn needs another lane, a nuance capsule after a real compaction, a one-line voice note for a spoken correction, and unread desk messages (Mode 2).
-- **`PreToolUse` hook**: asks before destructive commands (`rm -rf /`, `git push --force`, `terraform destroy` ...). Shell wrappers are opened up to 3 levels (`bash -c`, `pwsh -Command` / `-exec -nop -enc`, `cmd /c`, `sudo -u x`, `env A=1`). A whole-file read of a file over 120 KB gets an `ask` in workspace mode.
-- **Smart router** with a multi-model role split (Builder, read-only Audit, Final Check) over the model slots and quota you actually have.
+- **`PreInvocation` hook**: a router hint only when a turn needs another lane or intent guard (`ruling` / `musing` at confidence >= 0.6), a nuance capsule after a real compaction, a one-line voice note for a spoken correction, a post-write draft check reminder, and unread desk messages (Mode 2).
+- **`PreToolUse` hook**: asks before destructive commands (`rm -rf /`, `git push --force`, `terraform destroy` ...), checks 120 KB+ whole-file reads in workspace mode, and on `.md`/`.txt` draft-style paths (`drafts/`, `posts/`, `outreach/`, `x_post*`, etc., when full text is known and `JEV_GUARD_MODE != off`) blocks unmasked AI citation residue while reserving a post-write slop check. Shell wrappers are opened up to 3 levels (`bash -c`, `pwsh -Command` / `-exec -nop -enc`, `cmd /c`, `sudo -u x`, `env A=1`).
+- **`PostToolUse` hook (AGY 1.5.12)**: rolls back pending draft-gate state reservations when a file write or edit fails, so failed edits never leave stale reminders.
+- **`Stop` hook (AGY 1.5.12)**: performs a lightweight skip when `continuationActive` is `true` to avoid duplicate telemetry or state churn during continuation loops; otherwise logs `terminationReason` and error flag metadata only.
+- **Smart router**: 8 routing axes + 4-way slash-command-free utterance intent (`directive`, `ruling`, `musing`, `question`) + multi-model role split (Builder, read-only Audit, Final Check) over the model slots and quota you actually have.
+- **Prose slop gate (`prose_slop_gate.mjs`)**: zero-token deterministic checks for vendor citation residue (`oaicite`, `[cite: ...]`, `grok_card`, ignoring fenced code, inline backticks, and `<code>`/`<pre>` spans), EN/JA AI boilerplate phrasing, and SNS short-post constraints (active under `--kind sns|x_post` or `x_post*`/`tweet*`/`sns/` paths), with SHA-256 pass receipts (`check` / `verify`).
 - **Voice gate**: turn-taking, spoken self-correction cleanup, fail-closed confirmation of irreversible voice commands.
 - Skills `jev-harness`, `jev-workspace`, `voice-conversation-jev` and the read-only `jev-auditor` agent.
 
@@ -62,7 +65,7 @@ flowchart LR
   BUS <--> V[venture_lab] & Q[quant_lab] & S[creative_studio] & D[harness_dock]
   H[hooks.json] -->|PreInvocation| E[hook_entry.mjs]
   E --> R[smart_router] & N[nuance_rescue] & BUS
-  H -->|PreToolUse| G[tool_guard]
+  H -->|PreToolUse / PostToolUse / Stop| G[tool_guard & prose_slop_gate]
   D -->|dock day| F[dock_feeder digest] --> B[bloat_guard]
   V & Q & S -->|exit gate| A[anchored_eval x4 personas + assay]
   C -->|relay current| P[verbatim_relay]
@@ -71,9 +74,12 @@ flowchart LR
 ```
  user turn ─▶ hooks.json ─▶ hook_entry.mjs ─┬─ PreInvocation ─▶ nuance_rescue (after a real compaction)
                                             │                 ├▶ session_bus drain (unread desk messages, once)
-                                            │                 └▶ smart_router (lane + Builder/Audit/Final split) + voice note
-                                            └─ PreToolUse ────▶ tool_guard (destructive commands, big reads)
- on demand:  verbatim_relay · anchored_eval · anchored_gate · voice_conversation_gate · lean_outline
+                                            │                 ├▶ pending prose-gate reminder (if write succeeded)
+                                            │                 └▶ smart_router (lane + 4-way intent + roles) + voice note
+                                            ├─ PreToolUse ────▶ tool_guard (destructive commands, big reads) + draft reservation
+                                            ├─ PostToolUse ───▶ rollback pending reservation on write failure
+                                            └─ Stop ──────────▶ lightweight skip when continuationActive=true
+ on demand:  prose_slop_gate · verbatim_relay · anchored_eval · anchored_gate · voice_conversation_gate · lean_outline
  weekly:     dock_feeder (guard / eval / compaction / bloat / backlog) ─▶ harness_dock/WEEKLY_DIGEST.md
  shared:     jev_client (opt-in key, masking, safe reads, chunking, doctor) · workspace · telemetry
 ```
@@ -115,6 +121,8 @@ evaluator runs, compaction rescues, bloat status and backlog into `harness_dock/
 R=~/.gemini/config/plugins/jev-harness/scripts          # or the clone from Mode 2
 node $R/jev_client.mjs doctor [--offline]
 node $R/smart_router.mjs --text "audit this repo before I make it public" --models "flash,carbon,argon" --quota "gemini=50%,carbon=5%"
+node $R/prose_slop_gate.mjs check --file draft.md [--kind auto|general|sns|x_post] [--strict]
+node $R/prose_slop_gate.mjs verify --file draft.md [--max-age-hours 24]
 node $R/init_workspace.mjs --target <dir> [--lang ja|en] [--force] [--dry-run]
 node $R/session_bus.mjs send --to <desk|convId> --from <desk> --message "..."
 node $R/session_bus.mjs broadcast --from <desk> --message "..."
@@ -133,7 +141,7 @@ node $R/security_scan.mjs --history
 ```
 
 Settings: `JEV_HARNESS_MODE=off|lite|full`, `JEV_GUARD_MODE=ask|deny|force_ask|off`, `JEV_WORKSPACE_DIR`, `JEV_WORKSPACE_MODE=1`, `JEV_LARGE_READ_GUARD=off`,
-`JEV_MODELS`, `JEV_QUOTA`, `JEV_USER_LABEL`, `JEV_DAILY_CALL_CAP`, `JEV_BRAIN_DIR`, `JEV_SCAN_EXTRA_B64` (words that must never be published, supplied at scan time only).
+`JEV_MODELS`, `JEV_QUOTA`, `JEV_USER_LABEL`, `JEV_DAILY_CALL_CAP`, `JEV_BRAIN_DIR`, `JEV_PROSE_RECEIPTS_FILE`, `JEV_SCAN_EXTRA_B64` (words that must never be published, supplied at scan time only).
 
 Voice confirmations are fail-closed: `yes, do not delete the build folder` and, for an irreversible command, `yes, keep the build folder` can never unlock
 (`confirmation_contains_negation`, `missing_irreversible_verb_echo`), with or without Jev.
@@ -154,7 +162,7 @@ Once opted in, requests go to `generativelanguage.googleapis.com` and contain:
 - the decision questions (fixed strings in this repository or in your own pack files);
 - for voice commands that you pass `--audio`, the audio clip itself.
 
-Local state (hashes and counters per conversation, a daily call budget, count-only telemetry: rule ids and statuses, never your words) is stored under `PLUGIN_DATA` or
+Local state (hashes and counters per conversation, SHA-256 prose receipts storing target hashes and basenames, a daily call budget, count-only telemetry: rule ids and statuses, never your words) is stored under `PLUGIN_DATA` or
 `~/.config/jev-harness`. Desk messages live in the workspace under `Tasks/_bus/` (git-ignored by the starter). User words are stored only as hashes; set
 `JEV_STORE_PREV_INPUT=1` if you want the previous prompt kept in plain text. Credential files (`.env`, `*.pem`, `.ssh`, `auth.json` ...) are refused by every
 `--file`, `--user`, `--deliverable` and `--transcript` reader.
@@ -167,6 +175,12 @@ sending anything sensitive, and use a paid key for private material. For materia
 stay inside the free quota of about **10,000 requests per day** (figures at the time of writing; verify current pricing and limits).
 A built-in daily call cap (`JEV_DAILY_CALL_CAP`) and a 5-minute cool-down after HTTP 429 protect the quota. The evaluator makes 3 requests per persona
 when the assay runs (target, gold, near-miss), 12 for `--persona all`.
+
+## v0.3.0: prose slop gate, 4-way intent router & AGY 1.5.12 hooks
+
+- **`scripts/prose_slop_gate.mjs`**: Zero-token deterministic checker for leaked AI vendor citation markers (`oaicite`, `[cite: ...]`, `grok_card`), EN/JA AI boilerplate phrasing, and SNS short-post hygiene (weighted length, max hashtags, no reply-link prompts under `--kind sns|x_post` or `x_post*`/`tweet*`/`sns/` paths). Matches inside Markdown fenced blocks, inline backticks, and `<code>`/`<pre>` spans are excluded to prevent documentation false positives. Issues and verifies CRLF/LF-normalized SHA-256 pass receipts (`check` / `verify`).
+- **`scripts/smart_router.mjs`**: Classifies turns into `directive`, `ruling`, `musing`, or `question` across both offline deterministic heuristics and `gemini-decision-1` (`choice`), without requiring slash commands.
+- **`hooks.json` + `scripts/hook_entry.mjs`**: Adds `PostToolUse` write-failure reservation rollback and `Stop` lightweight skip on `continuationActive`.
 
 ## v0.2.0: modular free tools (`packages/`)
 
@@ -198,7 +212,7 @@ These three are the MIT-licensed free tools. Separate, standalone paid micro-pac
 
 ### Get it
 
-- **Free, MIT:** the three tools above are attached to the [v0.2.0 GitHub release](https://github.com/pikuto1125-pixel/agy-jev-harness/releases/tag/v0.2.0), together with `SHA256SUMS-FREE-v0.2.0.txt` for checking the downloads.
+- **Free, MIT:** the plugin core and the three tools above are published on [GitHub Releases](https://github.com/pikuto1125-pixel/agy-jev-harness/releases), together with SHA-256 checksum files for checking the downloads.
 - **Skill packs, USD:** five paid skill packs, and one bundle with all five for $89, are live on [Agensi](https://www.agensi.io/creators/creator-1260). They are sold separately from this repository.
 
 ## Tests

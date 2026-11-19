@@ -24,6 +24,7 @@ import * as dock from '../scripts/harness_dock.mjs';
 import * as hook from '../scripts/hook_entry.mjs';
 import * as jev from '../scripts/jev_client.mjs';
 import * as nuance from '../scripts/nuance_rescue.mjs';
+import * as proseGate from '../scripts/prose_slop_gate.mjs';
 import * as router from '../scripts/smart_router.mjs';
 import * as scan from '../scripts/security_scan.mjs';
 import * as guard from '../scripts/tool_guard.mjs';
@@ -1172,10 +1173,18 @@ describe('round 3: tool_guard', () => {
     assert.deepEqual(guard.evaluateToolCall(call({ AbsolutePath: path.join(path.dirname(big), 'missing.md') }), ws), {});
   });
 
-  it('hooks.json also routes view_file / read_file to the guard', () => {
+  it('hooks.json also routes view_file / read_file / write tools to PreToolUse and wires PostToolUse + Stop', () => {
     const hooks = JSON.parse(fs.readFileSync(path.join(ROOT, 'hooks.json'), 'utf8'));
     const matchers = hooks['jev-harness'].PreToolUse.map((e) => e.matcher);
-    assert.deepEqual(matchers, ['run_command', 'view_file', 'read_file']);
+    assert.deepEqual(matchers, [
+      'run_command',
+      'view_file',
+      'read_file',
+      'write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content',
+    ]);
+    assert.equal(hooks['jev-harness'].PostToolUse[0].matcher, 'write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content');
+    assert.match(hooks['jev-harness'].PostToolUse[0].hooks[0].command, /hook_entry\.mjs PostToolUse$/);
+    assert.match(hooks['jev-harness'].Stop[0].command, /hook_entry\.mjs Stop$/);
   });
 });
 
@@ -1266,15 +1275,23 @@ describe('init_workspace + starter', () => {
     const outside = path.join(fresh('out'), 'victim.md');
     fs.writeFileSync(outside, 'victim');
     fs.rmSync(path.join(root, 'GEMINI.md'));
+    let linkedKind = 'file';
     try {
       fs.symlinkSync(outside, path.join(root, 'GEMINI.md'));
     } catch {
-      t.skip('symlinks not permitted here');
-      return;
+      const outsideDir = fresh('outdir');
+      fs.writeFileSync(path.join(outsideDir, 'keep.txt'), 'safe');
+      try {
+        fs.symlinkSync(outsideDir, path.join(root, 'GEMINI.md'), 'junction');
+        linkedKind = 'junction';
+      } catch {
+        t.skip('symlinks not permitted here');
+        return;
+      }
     }
     const r = init.initWorkspace({ target: root, force: true });
     assert.ok(r.skipped.some((s) => s.file === 'GEMINI.md' && s.why === 'symlink'));
-    assert.equal(fs.readFileSync(outside, 'utf8'), 'victim');
+    if (linkedKind === 'file') assert.equal(fs.readFileSync(outside, 'utf8'), 'victim');
   });
 });
 
@@ -2334,5 +2351,266 @@ describe('task-4881 privacy / cursor hardening', () => {
     assert.equal(bus.drainFor({ convId: 'conv-venture-0001', root }).count, 1);
     assert.equal(bus.drainFor({ convId: 'conv-venture-0001', root }).count, 0);
     assert.match(JSON.parse(fs.readFileSync(path.join(root, 'Tasks', '_bus', 'cursors.json'), 'utf8'))['conv-venture-0001'], bus.MSG_ID_RE);
+  });
+});
+
+// ───────────────────────── v0.3.0: prose_slop_gate, 4-way intent & AGY 1.5.12 hooks ─────────────────────────
+
+describe('v0.3.0: prose_slop_gate', () => {
+  it('flags AI vendor residue in prose while ignoring fenced code blocks and inline backticks', () => {
+    const dirty = 'Here is the summary oaicite and a Gemini tag [cite: 12] plus grok_card.';
+    const bad = proseGate.checkProse(dirty);
+    assert.equal(bad.ok, false);
+    assert.equal(bad.hardFailCount, 3);
+    assert.deepEqual(bad.residueHits.map((h) => h.vendor).sort(), ['ChatGPT', 'Gemini', 'Grok']);
+
+    const quoted = [
+      '# Technical Guide',
+      '',
+      'Do not leave `oaicite` or `[cite: 1]` outside code spans.',
+      'An inline stray ``` marker inside text does not open a fence.',
+      '',
+      '```text',
+      'oai_citation and grok_card and ppl-ai-file-upload inside fence',
+      '```',
+      '',
+      '~~~~md',
+      ':::writing inside tilde fence',
+      '~~~~',
+      '',
+      'Normal prose remains clean after the code block.',
+    ].join('\n');
+    const clean = proseGate.checkProse(quoted);
+    assert.equal(clean.ok, true, JSON.stringify(clean));
+    assert.equal(clean.hardFailCount, 0);
+    assert.ok(clean.inCodeResidueCount >= 6);
+
+    // Inline stray ``` must not mask the prose that follows it
+    const stray = 'Mention inline ``` first, then oaicite leaks in prose.';
+    assert.equal(proseGate.checkProse(stray).ok, false);
+  });
+
+  it('flags EN/JA AI boilerplate and separates strong clichés from strict-only structural notes', () => {
+    assert.equal(proseGate.checkProse('いかがでしたか。本システムは重要な役割を果たしていると言えるでしょう。').ok, false);
+    assert.equal(proseGate.checkProse("In today's fast-paced world, let us delve into this game-changer.").ok, false);
+    const md = '機能一覧は A・B・C の 3 点です。\n\n---\n\n本文は具体的な手順を示します。';
+    const normal = proseGate.checkProse(md);
+    assert.equal(normal.ok, true);
+    assert.ok(normal.advisoryShapeCount >= 2);
+    const strict = proseGate.checkProse(md, { strict: true });
+    assert.equal(strict.ok, false);
+  });
+
+  it('enforces SNS short-post constraints without false-firing on unrelated policy paths', () => {
+    assert.equal(proseGate.detectKindFromPath('/work/social/social_media_policy.md'), 'general');
+    assert.equal(proseGate.detectKindFromPath('/work/drafts/x_post_release.md'), 'sns');
+    assert.equal(proseGate.detectKindFromPath('/work/tweets/launch.txt'), 'sns');
+
+    const tooManyTags = proseGate.checkProse('Released v0.3.0 today. #ai #agents #tools', { kind: 'sns' });
+    assert.equal(tooManyTags.ok, false);
+    assert.ok(tooManyTags.shortPostHits.some((h) => h.id === 'sns_too_many_hashtags'));
+
+    const replyLink = proseGate.checkProse('新機能を出しました。詳細はリプ欄にリンクを貼りました。', { kind: 'x_post' });
+    assert.equal(replyLink.ok, false);
+    assert.ok(replyLink.shortPostHits.some((h) => h.id === 'sns_filler_or_reply_link'));
+
+    // Japanese 150 chars = 300 weighted (> 280 limit)
+    const longJa = 'あ'.repeat(150);
+    const tooLongJa = proseGate.checkProse(longJa, { kind: 'sns' });
+    assert.equal(tooLongJa.ok, false);
+    assert.ok(tooLongJa.shortPostHits.some((h) => h.id === 'sns_length_exceeded'));
+
+    const goodSns = proseGate.checkProse('Released v0.3.0: offline prose gate and 4-way intent router. #opensource', { targetPath: 'drafts/x_post.md' });
+    assert.equal(goodSns.ok, true);
+  });
+
+  it('issues and verifies CRLF/LF-normalized SHA-256 receipts without storing home paths', () => {
+    const env = cleanEnv();
+    const dir = fresh('pg');
+    const file = path.join(dir, 'release_note.md');
+    const lfText = 'v0.3.0 ships offline deterministic checks.\n';
+    fs.writeFileSync(file, lfText.replace(/\n/g, '\r\n'), 'utf8');
+
+    const chk = run('prose_slop_gate.mjs', ['check', '--file', file], { env });
+    assert.equal(chk.status, 0, chk.stderr);
+    assert.equal(chk.json.issued, true);
+    const receiptsPath = path.join(env.PLUGIN_DATA, 'prose_receipts.jsonl');
+    const rawReceipt = fs.readFileSync(receiptsPath, 'utf8');
+    assert.ok(!rawReceipt.includes(dir), 'receipts must not store full local paths');
+    assert.match(rawReceipt, /"targetHash":"/);
+
+    // LF vs CRLF normalization matches the issued receipt
+    assert.equal(proseGate.verifyProseReceipt(file, lfText, { env }).ok, true);
+    const ver = run('prose_slop_gate.mjs', ['verify', '--file', file], { env });
+    assert.equal(ver.status, 0);
+    assert.equal(ver.json.verdict, 'pass');
+
+    // Non-strict receipt fails when --strict verification is requested
+    const strictVer = run('prose_slop_gate.mjs', ['verify', '--file', file, '--strict'], { env });
+    assert.equal(strictVer.status, 1);
+    assert.equal(strictVer.json.reason, 'strict_receipt_required');
+
+    // Modifying 1 character invalidates the receipt
+    fs.writeFileSync(file, lfText + 'edited\n', 'utf8');
+    const mismatch = run('prose_slop_gate.mjs', ['verify', '--file', file], { env });
+    assert.equal(mismatch.status, 1);
+    assert.equal(mismatch.json.reason, 'sha256_mismatch');
+
+    // Secrets are refused and forbidden paths fail
+    const secretPost = path.join(dir, 'leak.md');
+    fs.writeFileSync(secretPost, `key ${FIX.aws}`);
+    assert.equal(run('prose_slop_gate.mjs', ['check', '--file', secretPost], { env }).status, 1);
+    const envFile = path.join(dir, '.env');
+    fs.writeFileSync(envFile, 'clean text');
+    assert.equal(run('prose_slop_gate.mjs', ['check', '--file', envFile], { env }).status, 1);
+  });
+});
+
+describe('v0.3.0: smart_router 4-way intent classification', () => {
+  it('classifies directive, ruling, musing, and question offline without slash commands', () => {
+    const cases = [
+      ['implement the new config loader', 'directive'],
+      ['/goal build the report script', 'directive'],
+      ['1 OK', 'ruling'],
+      ['案1は没、2は却下、それでGO', 'ruling'],
+      ['これは没でお願いします', 'ruling'],
+      ['option 2 is approved', 'ruling'],
+      ['/swarm ship it', 'ruling'],
+      ['こういう機能もあったらいいよな', 'musing'],
+      ['いつも使ってるけどもっとシンプルにしたいよな', 'musing'],
+      ['I wonder if we should keep the cache warm', 'musing'],
+      ['今のテストはどうなっている？', 'question'],
+      ['Was the PR approved?', 'question'],
+      ['Should we reject option 2?', 'question'],
+      ['いつもありがとう。いまの進捗はどうなっていますか？', 'question'],
+      ['why does this fail? fix it right now', 'directive'],
+    ];
+    for (const [text, expected] of cases) {
+      assert.equal(router.classifyIntentHeuristic(text).intent, expected, text);
+    }
+  });
+
+  it('uses gemini-decision-1 utterance_intent choice and safely falls back when missing', async () => {
+    const env = cleanEnv();
+    const f = mockFetch((body) => {
+      assert.equal(body.questions.utterance_intent.type, 'choice');
+      const ans = Object.fromEntries(Object.keys(router.ALL_AXES).map((k) => [k, { noul: 0.1 }]));
+      ans.utterance_intent = { choice: 'musing', confidence: 0.91 };
+      return ans;
+    });
+    const r = await router.routeTurn('maybe we could try a different layout', { ...API(f), env });
+    assert.equal(r.intent, 'musing');
+    assert.equal(r.intentSource, 'jev');
+    assert.equal(r.intentConfidence, 0.91);
+    assert.match(r.hint, /INTENT\[musing\]/);
+    assert.equal(Object.keys(r.axes).length, 12);
+
+    // Fallback when API omits utterance_intent
+    const partial = mockFetch(() => Object.fromEntries(Object.keys(router.ALL_AXES).map((k) => [k, { noul: 0.1 }])));
+    const fb = await router.routeTurn('案2は採用でGO', { ...API(partial), env });
+    assert.equal(fb.intent, 'ruling');
+    assert.equal(fb.intentSource, 'heuristic');
+    assert.match(fb.hint, /INTENT\[ruling\]/);
+
+    // Confidence gate prevents low-confidence ruling/musing hint injection
+    assert.equal(router.buildHint({ lane: 'standard', axes: {}, source: 'jev', intent: 'ruling', intentConfidence: 0.4 }), '');
+  });
+});
+
+describe('v0.3.0: AGY 1.5.12 PostToolUse rollback & Stop.continuationActive', () => {
+  it('PreToolUse reserves draft prose checks, denies unmasked vendor residue, and PostToolUse rolls back on failure', async () => {
+    const env = cleanEnv();
+    const dir = fresh('hk');
+    const draft = path.join(dir, 'drafts', 'launch_post.md');
+    fs.mkdirSync(path.dirname(draft), { recursive: true });
+
+    // Unmasked residue in a draft is denied by PreToolUse without creating a reservation
+    const denied = await hook.handleHook(
+      'PreToolUse',
+      {
+        conversationId: 'conv-post-1',
+        toolCall: { id: 'call-bad', name: 'write_file', args: { Path: draft, Content: 'Leaked oaicite here.' } },
+      },
+      env
+    );
+    assert.equal(denied.decision, 'deny');
+    assert.equal(hook.loadState('conv-post-1', env).pendingProseGate, undefined);
+
+    // Clean draft write without receipt reserves a post-write check
+    const allowed = await hook.handleHook(
+      'PreToolUse',
+      {
+        conversationId: 'conv-post-1',
+        toolCall: { id: 'call-1', name: 'write_file', args: { Path: draft, Content: 'Release v0.3.0 notes.' } },
+      },
+      env
+    );
+    assert.deepEqual(allowed, {});
+    assert.equal(hook.loadState('conv-post-1', env).pendingProseGate.toolCallId, 'call-1');
+
+    // Failed write triggers PostToolUse rollback (string or object error)
+    const postErr = await hook.handleHook(
+      'PostToolUse',
+      {
+        conversationId: 'conv-post-1',
+        toolCall: { id: 'call-1', name: 'write_file' },
+        error: { message: 'disk full' },
+      },
+      env
+    );
+    assert.deepEqual(postErr, {});
+    assert.equal(hook.loadState('conv-post-1', env).pendingProseGate, undefined);
+    const guardEv = telemetry.readEvents('guard', { env });
+    assert.ok(guardEv.some((e) => e.rule === 'post_tool_rollback' && e.decision === 'rollback'));
+
+    // Next PreInvocation must not falsely claim the failed draft was updated
+    const afterFail = await hook.handleHook('PreInvocation', { conversationId: 'conv-post-1', lastUserInput: 'delete unused imports' }, env);
+    assert.deepEqual(afterFail, {});
+
+    // Successful write keeps reservation across PostToolUse and surfaces once in PreInvocation
+    await hook.handleHook(
+      'PreToolUse',
+      {
+        conversationId: 'conv-post-2',
+        toolCall: { id: 'call-2', name: 'write_file', args: { Path: draft, Content: 'Release v0.3.0 notes.' } },
+      },
+      env
+    );
+    assert.deepEqual(
+      await hook.handleHook('PostToolUse', { conversationId: 'conv-post-2', toolCall: { id: 'call-2', name: 'write_file' } }, env),
+      {}
+    );
+    const nextPre = await hook.handleHook('PreInvocation', { conversationId: 'conv-post-2', lastUserInput: '' }, env);
+    assert.match(nextPre.injectSteps[0].systemMessage.systemMessage, /\[jev-harness prose-gate\].*launch_post\.md/);
+    assert.equal(hook.loadState('conv-post-2', env).pendingProseGate, undefined);
+  });
+
+  it('Stop skips telemetry and state mutation when continuationActive is true, and logs normally otherwise', async () => {
+    const env = cleanEnv();
+    const skipOut = await hook.handleHook(
+      'Stop',
+      { conversationId: 'conv-stop-1', continuationActive: true, terminationReason: 'NO_TOOL_CALL' },
+      env
+    );
+    assert.deepEqual(skipOut, { decision: 'allow' });
+    assert.equal(telemetry.readEvents('stop', { env }).length, 0);
+    assert.equal(fs.existsSync(hook.stateFileFor('conv-stop-1', env)), false);
+
+    // String "false" must NOT trigger continuation skip
+    const normalOut = await hook.handleHook(
+      'Stop',
+      { conversationId: 'conv-stop-1', continuationActive: 'false', terminationReason: 'NO_TOOL_CALL' },
+      env
+    );
+    assert.deepEqual(normalOut, { decision: 'allow' });
+    const events = telemetry.readEvents('stop', { env });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].terminationReason, 'NO_TOOL_CALL');
+    assert.equal(events[0].continuationActive, false);
+
+    // Real CLI subprocess smoke test
+    const cli = run('hook_entry.mjs', ['Stop'], { input: JSON.stringify({ conversationId: 'conv-stop-cli', continuationActive: true }), env });
+    assert.equal(cli.status, 0);
+    assert.deepEqual(cli.json, { decision: 'allow' });
   });
 });

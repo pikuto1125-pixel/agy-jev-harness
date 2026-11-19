@@ -1,5 +1,26 @@
 # Release notes
 
+## v0.3.0
+
+### Highlights
+
+- **Zero-token prose slop gate (`scripts/prose_slop_gate.mjs`)**: Deterministic offline checks for AI vendor citation residue (`oaicite`, `[cite: ...]`, `grok_card`, `ppl-ai-file-upload`, `:::writing`, `<think>`, placeholders), EN/JA AI boilerplate phrasing, and short-post SNS hygiene (excess hashtags, reply-link prompts, filler closings, weighted length bounds when `--kind sns|x_post` or on `x_post*`/`tweet*`/`sns/` paths). Matches inside Markdown code fences, inline backticks, and `<code>`/`<pre>` spans are ignored so documentation and technical references do not trigger false positives. Issues and verifies SHA-256 pass receipts (`check` / `verify`) normalized across CRLF/LF without storing raw home paths.
+- **Slash-command-free 4-way utterance intent routing (`scripts/smart_router.mjs`)**: Classifies turns into `directive`, `ruling`, `musing`, or `question` using both an offline deterministic heuristic (`classifyIntentHeuristic`) and `gemini-decision-1` `choice` scoring (`INTENT_QUESTION`). Works with or without leading slash commands, surfaces advisory hints for `ruling` and `musing` (at confidence >= 0.6), and keeps ordinary turns silent.
+- **AGY 1.5.12 lifecycle hooks (`hooks.json` & `scripts/hook_entry.mjs`)**:
+  - `PostToolUse` hook on file write/edit tools rolls back pending draft-gate state reservations when a write tool fails (`error` / `isError` / `status === "error"`).
+  - `PreToolUse` draft-prose guard checks `.md`/`.txt` draft-style paths (`drafts/`, `posts/`, `outreach/`, `x_post*`, etc.) when full text is known and `JEV_GUARD_MODE != off`, blocking unmasked vendor residue and reserving a post-write check otherwise.
+  - `Stop` hook honors `continuationActive` (and `continuation_active`) by taking a fast lightweight skip path without mutating state or appending stop telemetry.
+
+### Changed
+
+- `package.json` and `plugin.json` bumped from `0.2.0` to `0.3.0`.
+- `scripts/telemetry.mjs` adds `stop` (`stop_events.jsonl`) for non-continuation stop summaries (`terminationReason`, `hasError`, and `continuationActive` flags only, zero user text).
+- `README.md`, `README.ja.md`, `skills/jev-harness/SKILL.md`, and `tests/plugin.test.mjs` updated for v0.3.0.
+
+### Integrity
+
+`SHA256SUMS-v0.3.0.txt` records the SHA-256 checksum of the clean distribution archive `agy-jev-harness-v0.3.0.zip`.
+
 ## v0.2.0
 
 ### Highlights
